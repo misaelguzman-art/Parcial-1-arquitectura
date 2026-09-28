@@ -348,3 +348,127 @@ function Store() {
     logMicroOp("STORE: Ningún registro o memoria modificada");
   }
 }
+
+// ==========================================
+// FASE 3 Y 4: CONTROLES, UI Y PROGRAMA DE PRUEBA
+// ==========================================
+
+let faseActual = 0; // 0: Fetch, 1: Decode, 2: Execute, 3: Store
+
+function pasoAPaso() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  
+  if (estadoInstruccion.tipo === "HLT") {
+    SpreadsheetApp.getUi().alert("Ejecución finalizada (HLT)");
+    return;
+  }
+  
+  switch(faseActual) {
+    case 0:
+      Fetch();
+      resaltarCelda("MAR");
+      break;
+    case 1:
+      Decode();
+      resaltarCelda("IR");
+      break;
+    case 2:
+      Execute();
+      resaltarCelda("ALU"); // Resalta AX/BX
+      break;
+    case 3:
+      Store();
+      resaltarCelda("MDR");
+      break;
+  }
+  
+  faseActual = (faseActual + 1) % 4;
+}
+
+function ejecucionContinua() {
+  const ui = SpreadsheetApp.getUi();
+  let delay = 500; // ms
+  
+  estadoInstruccion.tipo = "";
+  
+  while (estadoInstruccion.tipo !== "HLT") {
+    Fetch();
+    Decode();
+    Execute();
+    Store();
+    
+    SpreadsheetApp.flush(); // Fuerza la actualización visual de la hoja
+    Utilities.sleep(delay);
+  }
+  
+  ui.alert("Ejecución Continua Finalizada");
+}
+
+function cargarProgramaPrueba() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  
+  // Limpiar RAM primero
+  for (let i = 0; i < 256; i++) {
+    Write(i, "00");
+  }
+  
+  // Sucesión de Fibonacci
+  let programa = [
+    {dir: 0x00, val: "10"}, {dir: 0x01, val: "F0"}, // LOAD AX, [F0]
+    {dir: 0x02, val: "11"}, {dir: 0x03, val: "F1"}, // LOAD BX, [F1]
+    {dir: 0x04, val: "52"},                         // ADD AX, BX
+    {dir: 0x05, val: "21"}, {dir: 0x06, val: "F0"}, // STORE [F0], BX
+    {dir: 0x07, val: "20"}, {dir: 0x08, val: "F1"}, // STORE [F1], AX
+    {dir: 0x09, val: "11"}, {dir: 0x0A, val: "FF"}, // LOAD BX, [FF]
+    {dir: 0x0B, val: "81"},                         // DEC BX
+    {dir: 0x0C, val: "21"}, {dir: 0x0D, val: "FF"}, // STORE [FF], BX
+    {dir: 0x0E, val: "B0"}, {dir: 0x0F, val: "13"}, // JZ 13
+    {dir: 0x10, val: "A0"}, {dir: 0x11, val: "00"}, // JMP 00
+    {dir: 0x13, val: "FF"},                         // HLT
+    
+    // Variables iniciales
+    {dir: 0xF0, val: "00"}, // A = 0
+    {dir: 0xF1, val: "01"}, // B = 1
+    {dir: 0xFF, val: "0A"}  // Contador = 10
+  ];
+  
+  programa.forEach(inst => Write(inst.dir, inst.val));
+  
+  // Resetear CPU
+  const registros = ["PC", "IR", "MAR", "MDR", "AX", "BX"];
+  registros.forEach(reg => setReg(reg, 0));
+  setFlag("ZF", 0); setFlag("CF", 0); setFlag("SF", 0);
+  faseActual = 0;
+  estadoInstruccion.tipo = "";
+  
+  SpreadsheetApp.getUi().alert("Programa de Fibonacci cargado exitosamente.");
+  logMicroOp("PROGRAMA CARGADO: Fibonacci en 00h");
+}
+
+function resaltarCelda(componente) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  
+  // Restaurar colores de RAM y Registros
+  sheet.getRange(MEM_START_ROW, MEM_START_COL + 1, 16, 32).setBackground("#f3f3f3");
+  sheet.getRange(REG_START_ROW, REG_START_COL + 1, 6, 1).setBackground("#ffffff");
+  
+  let rowIndex = 0;
+  switch (componente) {
+    case "MAR":
+      rowIndex = REG_START_ROW + 2; // Índice MAR
+      sheet.getRange(rowIndex, REG_START_COL + 1).setBackground("#ffff99"); // Amarillo
+      break;
+    case "IR":
+      rowIndex = REG_START_ROW + 1;
+      sheet.getRange(rowIndex, REG_START_COL + 1).setBackground("#99ccff"); // Azul claro
+      break;
+    case "ALU":
+      // Resaltar AX y BX
+      sheet.getRange(REG_START_ROW + 4, REG_START_COL + 1, 2, 1).setBackground("#ff9999"); // Rojo claro
+      break;
+    case "MDR":
+      rowIndex = REG_START_ROW + 3;
+      sheet.getRange(rowIndex, REG_START_COL + 1).setBackground("#99ff99"); // Verde claro
+      break;
+  }
+}
