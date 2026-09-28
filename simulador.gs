@@ -178,3 +178,174 @@ function Fetch() {
   setReg("PC", (pc + 1) % 256);
   logMicroOp(`FETCH: PC + 1 -> PC (PC = ${((pc + 1) % 256).toString(16).toUpperCase().padStart(2, '0')}h)`);
 }
+
+let estadoInstruccion = {
+  opcode: 0,
+  operando: 0,
+  tipo: "", 
+  regDestino: "",
+  regOrigen: "",
+  aluResult: 0,
+  memAddress: 0,
+  jump: false
+};
+
+function Decode() {
+  logMicroOp("DECODE: Interpretando IR");
+  let ir = getReg("IR");
+  
+  let highNibble = Math.floor(ir / 16);
+  let lowNibble = ir % 16;
+  
+  estadoInstruccion.opcode = ir;
+  estadoInstruccion.jump = false;
+  estadoInstruccion.tipo = "1byte";
+  
+  if (ir === 0xFF) {
+    estadoInstruccion.tipo = "HLT";
+    logMicroOp("DECODE: Instrucción HLT (Parada)");
+    return;
+  }
+  
+  if ((highNibble >= 1 && highNibble <= 3) || highNibble === 0xA || highNibble === 0xB || highNibble === 0xC || (highNibble >= 5 && highNibble <= 6 && (lowNibble === 0 || lowNibble === 1)) || (highNibble === 9 && (lowNibble === 0 || lowNibble === 1))) {
+    estadoInstruccion.tipo = "2bytes";
+    let pc = getReg("PC");
+    setReg("MAR", pc);
+    let immHex = Read(pc);
+    let immVal = parseInt(immHex.toString().replace("'", ""), 16) || 0;
+    setReg("MDR", immVal);
+    estadoInstruccion.operando = immVal;
+    
+    setReg("PC", (pc + 1) % 256);
+    logMicroOp(`DECODE: Operando leído = ${immHex}, PC incrementado`);
+  } else {
+    logMicroOp(`DECODE: Instrucción de 1 byte identificada`);
+  }
+}
+
+function Execute() {
+  logMicroOp("EXECUTE: Ejecutando operación");
+  if (estadoInstruccion.tipo === "HLT") return;
+
+  let highNibble = Math.floor(estadoInstruccion.opcode / 16);
+  let lowNibble = estadoInstruccion.opcode % 16;
+  let regNames = ["AX", "BX"];
+  
+  estadoInstruccion.regDestino = "";
+  
+  switch(highNibble) {
+    case 1: // LOAD reg, [dir]
+      estadoInstruccion.regDestino = regNames[lowNibble];
+      setReg("MAR", estadoInstruccion.operando);
+      let dataRead = parseInt(Read(estadoInstruccion.operando).toString().replace("'", ""), 16) || 0;
+      setReg("MDR", dataRead);
+      estadoInstruccion.aluResult = dataRead;
+      logMicroOp(`EXECUTE: Leyendo RAM[${estadoInstruccion.operando.toString(16).toUpperCase()}h] -> MDR = ${dataRead.toString(16).toUpperCase()}h`);
+      break;
+    case 2: // STORE [dir], reg
+      estadoInstruccion.regOrigen = regNames[lowNibble];
+      estadoInstruccion.memAddress = estadoInstruccion.operando;
+      estadoInstruccion.aluResult = getReg(estadoInstruccion.regOrigen);
+      setReg("MDR", estadoInstruccion.aluResult);
+      logMicroOp(`EXECUTE: Preparando ${estadoInstruccion.regOrigen} para guardar en RAM`);
+      break;
+    case 3: // MOV reg, imm
+      estadoInstruccion.regDestino = regNames[lowNibble];
+      estadoInstruccion.aluResult = estadoInstruccion.operando;
+      logMicroOp(`EXECUTE: Moviendo inmediato ${estadoInstruccion.operando.toString(16).toUpperCase()}h a ${estadoInstruccion.regDestino}`);
+      break;
+    case 4: // MOV reg, reg
+      estadoInstruccion.regDestino = lowNibble === 0 ? "AX" : "BX";
+      estadoInstruccion.regOrigen = lowNibble === 0 ? "BX" : "AX";
+      estadoInstruccion.aluResult = getReg(estadoInstruccion.regOrigen);
+      logMicroOp(`EXECUTE: Copiando de ${estadoInstruccion.regOrigen} a ${estadoInstruccion.regDestino}`);
+      break;
+    case 5: // ADD
+    case 6: // SUB
+    case 9: // CMP
+      let op1Reg = (lowNibble === 0 || lowNibble === 2) ? "AX" : "BX";
+      let op1 = getReg(op1Reg);
+      let op2 = (lowNibble === 0 || lowNibble === 1) ? estadoInstruccion.operando : getReg(lowNibble === 2 ? "BX" : "AX");
+      
+      let res = 0;
+      if (highNibble === 5) res = op1 + op2;
+      else res = op1 - op2; 
+      
+      let finalRes = res & 0xFF;
+      
+      if (highNibble === 9) {
+        // BUG INTENCIONAL PARA EL FIX:
+        setFlag("ZF", 0); // BUG
+        setFlag("CF", res > 255 || res < 0);
+        setFlag("SF", (finalRes & 0x80) !== 0);
+        estadoInstruccion.regDestino = "";
+      } else {
+        setFlag("ZF", finalRes === 0);
+        setFlag("CF", res > 255 || res < 0);
+        setFlag("SF", (finalRes & 0x80) !== 0);
+        estadoInstruccion.regDestino = op1Reg;
+      }
+      
+      estadoInstruccion.aluResult = finalRes;
+      let opName = highNibble === 5 ? "ADD" : (highNibble === 6 ? "SUB" : "CMP");
+      logMicroOp(`EXECUTE: ALU ${opName} -> Res: ${finalRes.toString(16).toUpperCase()}h`);
+      break;
+    case 7: // INC
+    case 8: // DEC
+      let incReg = regNames[lowNibble];
+      let val = getReg(incReg);
+      let incRes = highNibble === 7 ? val + 1 : val - 1;
+      let fIncRes = incRes & 0xFF;
+      
+      setFlag("ZF", fIncRes === 0);
+      setFlag("SF", (fIncRes & 0x80) !== 0);
+      estadoInstruccion.aluResult = fIncRes;
+      estadoInstruccion.regDestino = incReg;
+      logMicroOp(`EXECUTE: ALU ${highNibble === 7 ? "INC" : "DEC"} ${incReg} -> ${fIncRes.toString(16).toUpperCase()}h`);
+      break;
+    case 0xA: // JMP
+      estadoInstruccion.jump = true;
+      estadoInstruccion.aluResult = estadoInstruccion.operando;
+      logMicroOp("EXECUTE: Evaluando JMP -> Salto incondicional");
+      break;
+    case 0xB: // JZ
+      if (getFlag("ZF") === 1) {
+        estadoInstruccion.jump = true;
+        estadoInstruccion.aluResult = estadoInstruccion.operando;
+        logMicroOp("EXECUTE: Evaluando JZ -> ZF=1, Saltará");
+      } else {
+        logMicroOp("EXECUTE: Evaluando JZ -> ZF=0, No saltará");
+      }
+      break;
+    case 0xC: // JNZ
+      if (getFlag("ZF") === 0) {
+        estadoInstruccion.jump = true;
+        estadoInstruccion.aluResult = estadoInstruccion.operando;
+        logMicroOp("EXECUTE: Evaluando JNZ -> ZF=0, Saltará");
+      } else {
+        logMicroOp("EXECUTE: Evaluando JNZ -> ZF=1, No saltará");
+      }
+      break;
+  }
+}
+
+function Store() {
+  logMicroOp("STORE: Escribiendo resultados");
+  if (estadoInstruccion.tipo === "HLT") return;
+  
+  let highNibble = Math.floor(estadoInstruccion.opcode / 16);
+  
+  if (estadoInstruccion.jump) {
+    setReg("PC", estadoInstruccion.aluResult);
+    logMicroOp(`STORE: PC modificado a ${estadoInstruccion.aluResult.toString(16).toUpperCase()}h`);
+  } else if (highNibble === 2) { // STORE
+    setReg("MAR", estadoInstruccion.memAddress);
+    Write(estadoInstruccion.memAddress, estadoInstruccion.aluResult.toString(16));
+    logMicroOp(`STORE: RAM[${estadoInstruccion.memAddress.toString(16).toUpperCase()}h] <- ${estadoInstruccion.aluResult.toString(16).toUpperCase()}h`);
+  } else if (estadoInstruccion.regDestino !== "") {
+    setReg(estadoInstruccion.regDestino, estadoInstruccion.aluResult);
+    logMicroOp(`STORE: Registro ${estadoInstruccion.regDestino} <- ${estadoInstruccion.aluResult.toString(16).toUpperCase()}h`);
+  } else {
+    logMicroOp("STORE: Ningún registro o memoria modificada");
+  }
+}
