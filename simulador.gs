@@ -274,8 +274,7 @@ function Execute() {
       let finalRes = res & 0xFF;
       
       if (highNibble === 9) {
-        // BUG INTENCIONAL PARA EL FIX:
-        setFlag("ZF", 0); // BUG
+        setFlag("ZF", finalRes === 0); // FIX: actualizacion de bandera Zero tras instruccion CMP
         setFlag("CF", res > 255 || res < 0);
         setFlag("SF", (finalRes & 0x80) !== 0);
         estadoInstruccion.regDestino = "";
