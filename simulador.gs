@@ -86,3 +86,95 @@ function Write(address, value) {
   let hexValue = "'" + value.toString().toUpperCase().padStart(2, '0');
   sheet.getRange(MEM_START_ROW + row, MEM_START_COL + (col * 2) + 1).setValue(hexValue);
 }
+
+// ==========================================
+// FASE 1: LOGICA DEL CICLO DE INSTRUCCIÓN
+// ==========================================
+
+// Funciones auxiliares para CPU
+function getReg(regName) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const registros = ["PC", "IR", "MAR", "MDR", "AX", "BX"];
+  let index = registros.indexOf(regName);
+  if (index !== -1) {
+    let val = sheet.getRange(REG_START_ROW + index, REG_START_COL + 1).getValue();
+    return parseInt(val.toString().replace("'", ""), 16) || 0;
+  }
+  return 0;
+}
+
+function setReg(regName, value) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const registros = ["PC", "IR", "MAR", "MDR", "AX", "BX"];
+  let index = registros.indexOf(regName);
+  if (index !== -1) {
+    let hexVal = "'" + value.toString(16).toUpperCase().padStart(2, '0');
+    sheet.getRange(REG_START_ROW + index, REG_START_COL + 1).setValue(hexVal);
+  }
+}
+
+function getFlag(flagName) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const flags = ["ZF", "CF", "SF"];
+  let index = flags.indexOf(flagName);
+  if (index !== -1) {
+    let val = sheet.getRange(REG_START_ROW + 8 + index, REG_START_COL + 1).getValue();
+    return parseInt(val.toString().replace("'", ""), 10) || 0;
+  }
+  return 0;
+}
+
+function setFlag(flagName, value) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const flags = ["ZF", "CF", "SF"];
+  let index = flags.indexOf(flagName);
+  if (index !== -1) {
+    let strVal = "'" + (value ? 1 : 0);
+    sheet.getRange(REG_START_ROW + 8 + index, REG_START_COL + 1).setValue(strVal);
+  }
+}
+
+function logMicroOp(message) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  let logStartRow = 5;
+  let logStartCol = 40; // Columna AN
+  
+  // Inicializar cabecera si no existe
+  if (sheet.getRange(logStartRow - 2, logStartCol).getValue() === "") {
+    sheet.getRange(logStartRow - 2, logStartCol).setValue("LOG DE MICRO-OPERACIONES").setFontWeight("bold");
+    sheet.setColumnWidth(logStartCol, 300);
+  }
+  
+  // Buscar primera fila vacía
+  let row = logStartRow;
+  while (sheet.getRange(row, logStartCol).getValue() !== "") {
+    row++;
+  }
+  
+  // Formatear mensaje
+  let step = (row - logStartRow + 1).toString().padStart(2, '0');
+  sheet.getRange(row, logStartCol).setValue(`[Paso ${step}] ${message}`);
+}
+
+function Fetch() {
+  logMicroOp("FETCH: Iniciando ciclo de búsqueda");
+  
+  // 1. PC -> MAR
+  let pc = getReg("PC");
+  setReg("MAR", pc);
+  logMicroOp(`FETCH: PC -> MAR (MAR = ${pc.toString(16).toUpperCase().padStart(2, '0')}h)`);
+  
+  // 2. Read RAM a MDR
+  let dataHex = Read(pc);
+  let dataVal = parseInt(dataHex.toString().replace("'", ""), 16) || 0;
+  setReg("MDR", dataVal);
+  logMicroOp(`FETCH: RAM[MAR] -> MDR (MDR = ${dataHex})`);
+  
+  // 3. MDR -> IR
+  setReg("IR", dataVal);
+  logMicroOp(`FETCH: MDR -> IR (IR = ${dataHex})`);
+  
+  // 4. Incrementar PC
+  setReg("PC", (pc + 1) % 256);
+  logMicroOp(`FETCH: PC + 1 -> PC (PC = ${((pc + 1) % 256).toString(16).toUpperCase().padStart(2, '0')}h)`);
+}
