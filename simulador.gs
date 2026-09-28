@@ -179,18 +179,26 @@ function Fetch() {
   logMicroOp(`FETCH: PC + 1 -> PC (PC = ${((pc + 1) % 256).toString(16).toUpperCase().padStart(2, '0')}h)`);
 }
 
-let estadoInstruccion = {
-  opcode: 0,
-  operando: 0,
-  tipo: "", 
-  regDestino: "",
-  regOrigen: "",
-  aluResult: 0,
-  memAddress: 0,
-  jump: false
-};
+function getEstadoInstruccion() {
+  let props = PropertiesService.getDocumentProperties();
+  let estado = props.getProperty('estadoInstruccion');
+  if (estado) return JSON.parse(estado);
+  return { opcode: 0, operando: 0, tipo: "", regDestino: "", regOrigen: "", aluResult: 0, memAddress: 0, jump: false };
+}
+function setEstadoInstruccion(estado) {
+  PropertiesService.getDocumentProperties().setProperty('estadoInstruccion', JSON.stringify(estado));
+}
+function getFaseActual() {
+  let props = PropertiesService.getDocumentProperties();
+  let fase = props.getProperty('faseActual');
+  return fase ? parseInt(fase, 10) : 0;
+}
+function setFaseActual(fase) {
+  PropertiesService.getDocumentProperties().setProperty('faseActual', fase.toString());
+}
 
 function Decode() {
+  let estadoInstruccion = getEstadoInstruccion();
   logMicroOp("DECODE: Interpretando IR");
   let ir = getReg("IR");
   
@@ -221,9 +229,11 @@ function Decode() {
   } else {
     logMicroOp(`DECODE: Instrucción de 1 byte identificada`);
   }
+  setEstadoInstruccion(estadoInstruccion);
 }
 
 function Execute() {
+  let estadoInstruccion = getEstadoInstruccion();
   logMicroOp("EXECUTE: Ejecutando operación");
   if (estadoInstruccion.tipo === "HLT") return;
 
@@ -326,9 +336,11 @@ function Execute() {
       }
       break;
   }
+  setEstadoInstruccion(estadoInstruccion);
 }
 
 function Store() {
+  let estadoInstruccion = getEstadoInstruccion();
   logMicroOp("STORE: Escribiendo resultados");
   if (estadoInstruccion.tipo === "HLT") return;
   
@@ -347,15 +359,16 @@ function Store() {
   } else {
     logMicroOp("STORE: Ningún registro o memoria modificada");
   }
+  setEstadoInstruccion(estadoInstruccion);
 }
 
 // ==========================================
 // FASE 3 Y 4: CONTROLES, UI Y PROGRAMA DE PRUEBA
 // ==========================================
 
-let faseActual = 0; // 0: Fetch, 1: Decode, 2: Execute, 3: Store
-
 function pasoAPaso() {
+  let estadoInstruccion = getEstadoInstruccion();
+  let faseActual = getFaseActual();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   
   if (estadoInstruccion.tipo === "HLT") {
@@ -383,19 +396,23 @@ function pasoAPaso() {
   }
   
   faseActual = (faseActual + 1) % 4;
+  setFaseActual(faseActual);
 }
 
 function ejecucionContinua() {
   const ui = SpreadsheetApp.getUi();
   let delay = 500; // ms
+  let estadoInstruccion = getEstadoInstruccion();
   
   estadoInstruccion.tipo = "";
+  setEstadoInstruccion(estadoInstruccion);
   
   while (estadoInstruccion.tipo !== "HLT") {
     Fetch();
     Decode();
     Execute();
     Store();
+    estadoInstruccion = getEstadoInstruccion();
     
     SpreadsheetApp.flush(); // Fuerza la actualización visual de la hoja
     Utilities.sleep(delay);
@@ -438,8 +455,10 @@ function cargarProgramaPrueba() {
   const registros = ["PC", "IR", "MAR", "MDR", "AX", "BX"];
   registros.forEach(reg => setReg(reg, 0));
   setFlag("ZF", 0); setFlag("CF", 0); setFlag("SF", 0);
-  faseActual = 0;
+  setFaseActual(0);
+  let estadoInstruccion = getEstadoInstruccion();
   estadoInstruccion.tipo = "";
+  setEstadoInstruccion(estadoInstruccion);
   
   SpreadsheetApp.getUi().alert("Programa de Fibonacci cargado exitosamente.");
   logMicroOp("PROGRAMA CARGADO: Fibonacci en 00h");
