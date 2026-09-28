@@ -3,7 +3,7 @@ const SHEET_NAME = "Simulador";
 const MEM_START_ROW = 5;
 const MEM_START_COL = 2; // Columna B (La memoria ocupará de la columna 2 a la 33)
 const REG_START_ROW = 5;
-const REG_START_COL = 20; // Posicion inicial para la UI (con error visual)
+const REG_START_COL = 36; // CAMBIADO a la Columna AJ para separar visualmente la CPU de la RAM
 
 /**
  * Tarea 1 y 2: Inicialización de la Memoria RAM y Registros
